@@ -7,4 +7,5 @@ public class TagDto
     public DateTime CreateTime { get; set; }
 
     public string Name { get; set; }
+    public Guid? UserId { get; set; }
 }
