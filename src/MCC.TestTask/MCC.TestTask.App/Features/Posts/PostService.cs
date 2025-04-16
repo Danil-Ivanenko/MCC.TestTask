@@ -46,71 +46,74 @@ public class PostService
         if (!communityValidationResult.IsSuccess)
             return communityValidationResult;
 
-        var query = _blogDbContext.Posts.AsEnumerable()
+        var query = _blogDbContext.Posts.AsQueryable()
             .ReadableByUser(userId);
 
         if (!string.IsNullOrEmpty(filter.Author))
-            query = query.Where(x => x.Author.FullName.Contains(filter.Author)).ToList();
+            query = query.Where(x => x.Author.FullName.Contains(filter.Author));
 
         if (filter.TagIds.Any())
         {
-            var existingTagsCount = _blogDbContext.Tags.ToList().Where(t => filter.TagIds.Contains(t.Id)).Count();
+            var existingTagsCount = await _blogDbContext.Tags.CountAsync(t => filter.TagIds.Contains(t.Id));
 
             if (existingTagsCount != filter.TagIds.Distinct().Count())
                 return Result.Fail(new ValidationError("Invalid tag id"));
 
-            query = query.Where(p => p.Tags.Any(t => filter.TagIds.Contains(t.Id))).ToList();
+            query = query.Where(p => p.Tags.Any(t => filter.TagIds.Contains(t.Id)));
         }
 
         if (filter.MinReadingTime.HasValue)
-            query = query.Where(x => x.ReadingTime >= filter.MinReadingTime.Value).ToList();
+            query = query.Where(x => x.ReadingTime >= filter.MinReadingTime.Value);
 
         if (filter.MaxReadingTime.HasValue)
-            query = query.Where(x => x.ReadingTime <= filter.MaxReadingTime.Value).ToList();
+            query = query.Where(x => x.ReadingTime <= filter.MaxReadingTime.Value);
 
         if (filter.OnlyMyCommunities.HasValue)
             query = query.Where(p =>
                 p.Community != null && (
                     p.Community.Creator.Id == userId
                     || p.Community.Administrators.Any(a => a.Id == userId)
-                    || p.Community.Subscribers.Any(u => u.Id == userId))).ToList();
+                    || p.Community.Subscribers.Any(u => u.Id == userId)));
 
         if (filter.CommunityId.HasValue)
-            query = query.Where(x => x.CommunityId == filter.CommunityId.Value).ToList();
+            query = query.Where(x => x.CommunityId == filter.CommunityId.Value);
 
-        var totalCount = query.Count();
+        
 
         query = sorting switch
         {
-            PostSorting.CreateAsc => query.OrderBy(p => p.CreatedAt).ToList(),
-            PostSorting.CreateDesc => query.OrderByDescending(p => p.CreatedAt).ToList(),
-            PostSorting.LikeAsc => query.OrderBy(p => p.LikedBy.Count).ToList(),
-            PostSorting.LikeDesc => query.OrderByDescending(p => p.LikedBy.Count).ToList(),
-            null => query.ToList(),
+            PostSorting.CreateAsc => query.OrderBy(p => p.CreatedAt),
+            PostSorting.CreateDesc => query.OrderByDescending(p => p.CreatedAt),
+            PostSorting.LikeAsc => query.OrderBy(p => p.LikedBy.Count),
+            PostSorting.LikeDesc => query.OrderByDescending(p => p.LikedBy.Count),
+            null => query,
             _ => throw new ArgumentOutOfRangeException(nameof(sorting), sorting, null)
         };
-
+        var totalCount =  await query.CountAsync();
+        var posts = await query
+        .Paginate(pagination)
+        .Select(p => new PostDto
+        {
+            Id = p.Id,
+            CreateTime = p.CreatedAt,
+            Title = p.Title,
+            Description = p.Description,
+            ReadingTime = p.ReadingTime,
+            Image = p.ImageUrl,
+            AuthorId = p.AuthorId,
+            Author = p.Author.FullName,
+            CommunityId = p.CommunityId,
+            CommunityName = p.Community != null ? p.Community.Name : null,
+            Likes = p.LikedBy.Count,
+            HasLike = userId.HasValue ? p.LikedBy.Any(lb => lb.Id == userId.Value) : false, 
+            CommentsCount = p.Comments.Count,
+            Tags = p.Tags.Select(t => t.ToDto()).ToList()
+        })
+        .ToListAsync();
+        
         return new PostPagedListDto
         {
-            Posts = query.Select(p=> new PostDto
-                {
-                    Id = p.Id,
-                    CreateTime = p.CreatedAt,
-                    Title = p.Title,
-                    Description = p.Description,
-                    ReadingTime = p.ReadingTime,
-                    Image = p.ImageUrl,
-                    AuthorId = p.AuthorId,
-                    Author = _blogDbContext.Posts.Where(post => post.Id == p.Id).Select(post => post.Author).FirstOrDefault()?.FullName,
-                    CommunityId = p.CommunityId,
-                    CommunityName = _blogDbContext.Posts.Where(post => post.Id == p.Id).Select(post => post.Community).FirstOrDefault()?.Name,
-                    Likes = _blogDbContext.Posts.Where(post => post.Id == p.Id).Select(post => post.LikedBy).First().Count(),
-                    HasLike = _blogDbContext.Posts.Where(post => post.Id == p.Id).Select(post => post.LikedBy.Any(lb => lb.Id == userId)).First(),
-                    CommentsCount = _blogDbContext.Posts.Where(post => post.Id == p.Id).Select(post => post.Comments).First().Count(),
-                    Tags = _blogDbContext.Posts.Where(post => post.Id == p.Id).Select(post => post.Tags).First().Select(t => t.ToDto()).ToList()
-                })
-                .Paginate(pagination)
-                .ToList(),
+            Posts = posts,
             Pagination = pagination.ToDto(totalCount)
         };
     }
