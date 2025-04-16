@@ -19,11 +19,12 @@ public class MailJobService
 
     public Result NotifySubscribersAboutNewPost(Guid postId)
     {
-        return Result.Ok(); // doesn't work anyway, fix it later
-        
-        var post = _blogDbContext.Posts
-            .FirstOrDefault(p => p.Id == postId && p.Community != null);
 
+        var post = _blogDbContext.Posts
+        .Include(p => p.Community) 
+        .ThenInclude(c => c.Subscribers) 
+        .FirstOrDefault(p => p.Id == postId && p.Community != null);
+        
         if (post == null)
             return CustomErrors.ValidationError("Post not found or doesn't have a Community");
 
@@ -34,7 +35,6 @@ public class MailJobService
         foreach (var subscriber in post.Community!.Subscribers)
             _backgroundJobClient.Enqueue<MailingService>(j =>
                 j.SendMail(subscriber.FullName, subscriber.Email, mailSubject, mailBody));
-
         return Result.Ok();
     }
 }
