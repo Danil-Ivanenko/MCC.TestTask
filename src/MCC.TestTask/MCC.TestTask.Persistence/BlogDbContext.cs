@@ -31,7 +31,8 @@ public class BlogDbContext : DbContext
         builder.Entity<Post>().HasOne(p => p.Author).WithMany();
         builder.Entity<Post>().HasMany(p => p.LikedBy).WithMany();
         builder.Entity<Post>().HasMany(p => p.Tags).WithMany();
-                    
+        builder.Entity<Post>().HasIndex(p => p.ReadingTime);
+
         builder.Entity<Comment>().HasMany(c => c.Replies).WithOne(r => r.Parent);
     }
 }
